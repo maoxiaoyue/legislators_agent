@@ -1,0 +1,125 @@
+syntax = "proto3";
+
+package legagentpb;
+
+option go_package = "legagent/app/proto/legagentpb";
+
+// LegagentService 定義 Legagent 相關的 gRPC 服務
+service LegagentService {
+  // CreateLegagent 建立新的 Legagent
+  rpc CreateLegagent (CreateLegagentRequest) returns (LegagentResponse);
+
+  // GetLegagent 根據 ID 取得 Legagent
+  rpc GetLegagent (GetLegagentRequest) returns (LegagentResponse);
+
+  // ListLegagents 列出所有 Legagent
+  rpc ListLegagents (ListLegagentsRequest) returns (ListLegagentsResponse);
+
+  // UpdateLegagent 更新 Legagent
+  rpc UpdateLegagent (UpdateLegagentRequest) returns (LegagentResponse);
+
+  // DeleteLegagent 刪除 Legagent
+  rpc DeleteLegagent (DeleteLegagentRequest) returns (DeleteLegagentResponse);
+
+  // SearchRules 以語意向量檢索立法院議事規則等法規條文
+  rpc SearchRules (SearchRulesRequest) returns (SearchRulesResponse);
+
+  // ListRuleLaws 列出向量索引涵蓋的法規
+  rpc ListRuleLaws (ListRuleLawsRequest) returns (ListRuleLawsResponse);
+}
+
+// CreateLegagentRequest 建立請求
+message CreateLegagentRequest {
+  string name = 1;
+  string description = 2;
+}
+
+// GetLegagentRequest 查詢請求
+message GetLegagentRequest {
+  int64 id = 1;
+}
+
+// ListLegagentsRequest 列表請求
+message ListLegagentsRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+}
+
+// UpdateLegagentRequest 更新請求
+message UpdateLegagentRequest {
+  int64 id = 1;
+  string name = 2;
+  string description = 3;
+}
+
+// DeleteLegagentRequest 刪除請求
+message DeleteLegagentRequest {
+  int64 id = 1;
+}
+
+// LegagentResponse 單筆回應
+message LegagentResponse {
+  int64 id = 1;
+  string name = 2;
+  string description = 3;
+  string created_at = 4;
+  string updated_at = 5;
+}
+
+// ListLegagentsResponse 列表回應
+message ListLegagentsResponse {
+  repeated LegagentResponse items = 1;
+  int32 total = 2;
+}
+
+// DeleteLegagentResponse 刪除回應
+message DeleteLegagentResponse {
+  bool success = 1;
+}
+
+// SearchRulesRequest 語意檢索請求
+message SearchRulesRequest {
+  string query = 1;     // 自然語言問題或關鍵字（必填）
+  int32 top_k = 2;      // 回傳筆數，0 = 預設 5，上限 50
+  string law_name = 3;  // 限定法規名稱（完全相符，可選）
+  string pcode = 4;     // 限定法規代碼（可選）
+}
+
+// RuleHit 單筆條文命中
+message RuleHit {
+  string law_name = 1;
+  string pcode = 2;
+  string nature = 3;      // 法律 / 命令
+  string article_no = 4;  // 1、87-1
+  string label = 5;       // 第 1 條
+  string chapter = 6;     // 第一章 總則
+  string content = 7;
+  string source_url = 8;
+  float score = 9;        // cosine 相似度
+}
+
+// SearchRulesResponse 語意檢索回應
+message SearchRulesResponse {
+  repeated RuleHit hits = 1;
+  int32 total = 2;
+}
+
+// ListRuleLawsRequest 法規列表請求
+message ListRuleLawsRequest {}
+
+// RuleLaw 索引中的法規摘要
+message RuleLaw {
+  string name = 1;
+  string pcode = 2;
+  string nature = 3;
+  string category = 4;
+  string updated_at = 5;
+  int32 article_count = 6;
+  string source_url = 7;
+}
+
+// ListRuleLawsResponse 法規列表回應
+message ListRuleLawsResponse {
+  repeated RuleLaw laws = 1;
+  int32 total = 2;
+}

@@ -1,0 +1,75 @@
+# HypGo LLM 智慧增強配置
+# 放置於 .hyp/llm.yaml
+# 使用方式：hyp chkcomment --llm .hyp/llm.yaml
+#
+# 注意 timeout 設定（秒）：
+#   - 雲端 API（GPT/Claude/Gemini）：30 通常足夠
+#   - 本地大模型（llama.cpp + 30B+）：建議 120-180，避免 hyp chkcomment --fixintent 退回 heuristic
+#   - 若每次都退回 heuristic，先試 HYP_DEBUG_LLM=1 hyp chkcomment --fixintent ... 看是不是 timeout
+
+# ============================================================
+# mode: 控制 LLM 增強模式
+# ============================================================
+# "none"   — 不使用 LLM，只做純 Go 推斷（零成本，預設值）
+# "ollama" — 連接本地 Ollama 伺服器
+# "api"    — 連接遠端 API（OpenAI / Anthropic / Gemini）
+
+mode: none
+
+# ============================================================
+# Mode 1: Ollama（本地模型，零費用，建議開發用）
+# ============================================================
+# 前置條件：安裝 Ollama (https://ollama.com) 並下載模型
+#   ollama pull llama3
+#   ollama pull codellama
+
+# mode: ollama
+# ollama:
+#   url: "http://localhost:11434"    # Ollama API 位址
+#   model: "llama3"                  # 模型名稱
+#   timeout: 30                      # 請求逾時（秒）
+#   max_tokens: 256                  # 最大回應 token 數
+
+# ============================================================
+# Mode 2: API（遠端模型，付費，建議正式環境用）
+# ============================================================
+# 支援 provider：openai, anthropic, gemini, custom
+# api_key 支援環境變數：${OPENAI_API_KEY}
+
+# --- OpenAI ---
+# mode: api
+# api:
+#   provider: "openai"
+#   model: "gpt-4o-mini"             # 建議用小模型，降低成本
+#   api_key: "${OPENAI_API_KEY}"     # 從環境變數讀取
+#   timeout: 30
+#   max_tokens: 256
+
+# --- Anthropic ---
+# mode: api
+# api:
+#   provider: "anthropic"
+#   model: "claude-haiku-4-5"
+#   api_key: "${ANTHROPIC_API_KEY}"
+#   timeout: 30
+#   max_tokens: 256
+
+# --- Gemini ---
+# mode: api
+# api:
+#   provider: "gemini"
+#   model: "gemini-2.0-flash"
+#   api_key: "${GEMINI_API_KEY}"
+#   timeout: 30
+#   max_tokens: 256
+
+# --- Custom（自建 OpenAI-compatible API）---
+# mode: api
+# api:
+#   provider: "custom"
+#   base_url: "http://localhost:8000/v1"   # 必填
+#   model: "my-model"
+#   api_key: "my-key"
+#   timeout: 30
+#   max_tokens: 256
+

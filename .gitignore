@@ -1,0 +1,10 @@
+# build
+bin/
+# downloaded raw open-data (zip/xml, >100MB) and generated vector index
+data/raw/
+data/vectors/
+# hyp design-time artifacts
+.hyp/context.yaml
+.hyp/eval_history.jsonl
+.hyp/observe_*.html
+.hyp/lostintent.md

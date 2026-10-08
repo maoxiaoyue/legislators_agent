@@ -1,0 +1,30 @@
+# Generate Go code from .proto files (buf drives local protoc-gen-go / protoc-gen-go-grpc; no protoc needed)
+.PHONY: proto
+proto:
+	buf generate
+
+# Run the gRPC server
+.PHONY: run
+run:
+	go run main.go
+
+# Download MOJ open data (法律 + 命令), build data/laws/*.json and the vector index
+.PHONY: ingest
+ingest:
+	go run ./tools/ingest -config app/config/config.yaml
+
+# Rebuild the vector index from data/laws/*.json without downloading
+.PHONY: reindex
+reindex:
+	go run ./tools/ingest -config app/config/config.yaml -reindex -reset
+
+# Test
+.PHONY: test
+test:
+	go test ./...
+
+# Build
+.PHONY: build
+build:
+	go build -o bin/legagent .
+	go build -o bin/ingest ./tools/ingest
