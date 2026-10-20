@@ -17,7 +17,7 @@
 | 中文法規_法律資料檔（[data.gov.tw/dataset/18289](https://data.gov.tw/dataset/18289)） | 立法院組織法、職權行使法、各委員會組織法、立法委員行為法… | `FalV.zip`（約 6 MB） |
 | 中文法規_命令資料檔（[data.gov.tw/dataset/18290](https://data.gov.tw/dataset/18290)） | **立法院議事規則**、程序委員會組織規程、議場規則、秘密會議規則、點名表決辦法… | `MingLing.zip`（約 25 MB） |
 
-預設以「法規類別」前綴 `立法`（立法院主管）篩選並排除廢止法規，共約 40 部法規；可在 `app/config/config.yaml` 的 `rules` 區段調整。
+預設以「法規類別」前綴 `立法`（立法院主管）篩選並排除廢止法規，共約 40 部法規；可在 `config/config.yaml` 的 `rules` 區段調整。
 
 ### 資料流
 
@@ -44,7 +44,7 @@ export EMBEDDING_PROVIDER=lexical
 
 # 2. 下載（30 天內快取）→ 解析 → 寫 data/laws → 建索引，並試查一次
 make ingest
-go run ./tools/ingest -config app/config/config.yaml -query "法律案要幾個人連署"
+go run . ingest -query "法律案要幾個人連署"
 
 # 3. 更換 embedding 模型後，不必重新下載，直接以 data/laws 重建
 make reindex
@@ -68,4 +68,4 @@ go build ./... && go vet ./... && go test ./...
 
 ## 架構
 
-HypGo gRPC 專案（MVC）：`app/models` DTO、`app/services` 業務邏輯 + Error Catalog（E3xxx = rules）、`app/rpc` 薄介面層 + Schema-first 註冊、`internal/` 基礎設施（moj / embed / vectorstore）、`tools/ingest` 資料建置 CLI。
+HypGo gRPC 專案（MVC）：`app/models` DTO、`app/services` 業務邏輯 + Error Catalog（E3xxx = rules）、`app/rpc` 薄介面層 + Schema-first 註冊、`internal/` 基礎設施（moj / embed / vectorstore）、根目錄 `ingest.go` 為資料建置子命令（`go run . ingest`）。

@@ -13,7 +13,7 @@ var (
 	// ErrRulesSearchFailed 為向量查詢或 embedding 供應者失敗。
 	ErrRulesSearchFailed = errors.Define("E3002", 500, "Rule search failed", "rules")
 	// ErrRulesIndexEmpty 表示尚未執行 ingest，索引無任何條文。
-	ErrRulesIndexEmpty = errors.Define("E3003", 503, "Rule index is empty; run tools/ingest first", "rules")
+	ErrRulesIndexEmpty = errors.Define("E3003", 503, "Rule index is empty; run `go run . ingest` first", "rules")
 	// ErrRulesIngestFailed 為解析或寫入向量索引失敗。
 	ErrRulesIngestFailed = errors.Define("E3004", 500, "Rule ingest failed", "rules")
 	// ErrRulesSourceUnavailable 為全國法規資料庫下載失敗。

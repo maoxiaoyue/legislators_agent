@@ -6,17 +6,17 @@ proto:
 # Run the gRPC server
 .PHONY: run
 run:
-	go run main.go
+	go run .
 
 # Download MOJ open data (法律 + 命令), build data/laws/*.json and the vector index
 .PHONY: ingest
 ingest:
-	go run ./tools/ingest -config app/config/config.yaml
+	go run . ingest
 
 # Rebuild the vector index from data/laws/*.json without downloading
 .PHONY: reindex
 reindex:
-	go run ./tools/ingest -config app/config/config.yaml -reindex -reset
+	go run . ingest -reindex -reset
 
 # Test
 .PHONY: test
@@ -27,4 +27,4 @@ test:
 .PHONY: build
 build:
 	go build -o bin/legagent .
-	go build -o bin/ingest ./tools/ingest
+
