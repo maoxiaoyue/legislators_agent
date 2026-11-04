@@ -6,9 +6,6 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/maoxiaoyue/hypgo/pkg/hidb"
-	"github.com/maoxiaoyue/hypgo/pkg/hidb/pg"
-
 	"legagent/app/services"
 )
 
@@ -37,11 +34,7 @@ func runImportLegislators(args []string) {
 		log.Error("load roster failed", "path", *file, "err", err)
 		os.Exit(1)
 	}
-	db, err := hidb.NewWithInterface(&cfg.Database, hidb.WithDialect(pg.New()))
-	if err != nil {
-		log.Error("connect database failed", "err", err)
-		os.Exit(1)
-	}
+	db := mustOpenDB(cfg, log)
 	defer db.Close()
 
 	stats, err := services.NewLegislatorsService(db, log).Import(ctx, roster)

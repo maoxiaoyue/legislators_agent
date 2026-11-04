@@ -52,7 +52,8 @@ func runIngest(args []string) {
 	if *reindex {
 		stats, err = svc.Reindex(ctx, *reset)
 	} else {
-		paths, perr := resolveXML(ctx, *xmls, cfg, log)
+		maxAge := time.Duration(cfg.Rules.CacheMaxAgeHours) * time.Hour
+		paths, perr := resolveXML(ctx, *xmls, maxAge, cfg, log)
 		if perr != nil {
 			log.Error("resolve xml failed", "err", perr)
 			os.Exit(1)
@@ -84,7 +85,7 @@ func runIngest(args []string) {
 }
 
 // resolveXML 回傳要解析的 XML 路徑：使用者指定的本地檔，或自官方下載（快取於 cache_dir）。
-func resolveXML(ctx context.Context, flagXML string, cfg *appConfig, log *logger.Logger) ([]string, error) {
+func resolveXML(ctx context.Context, flagXML string, maxAge time.Duration, cfg *appConfig, log *logger.Logger) ([]string, error) {
 	if flagXML != "" {
 		var out []string
 		for _, p := range strings.Split(flagXML, ",") {
@@ -94,7 +95,6 @@ func resolveXML(ctx context.Context, flagXML string, cfg *appConfig, log *logger
 		}
 		return out, nil
 	}
-	maxAge := time.Duration(cfg.Rules.CacheMaxAgeHours) * time.Hour
 	var out []string
 	for _, ds := range []moj.Dataset{moj.DatasetLaws, moj.DatasetOrders} {
 		log.Info("fetching dataset", "name", ds.Name, "url", ds.URL, "cache_dir", cfg.Rules.CacheDir)
