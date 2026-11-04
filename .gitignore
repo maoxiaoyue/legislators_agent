@@ -8,3 +8,6 @@ data/vectors/
 .hyp/eval_history.jsonl
 .hyp/observe_*.html
 .hyp/lostintent.md
+
+# local runtime config (contains credentials)
+config/
