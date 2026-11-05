@@ -1135,10 +1135,78 @@ STEPS = {"ly-meets": step_ly_meets, "ly-votes": step_ly_votes, "ly-bills": step_
          "ly-bills-gaps": step_ly_bills_gaps, "ly-bills-status": step_ly_bills_status}
 
 
+# Old scans stay un-OCRed on purpose; undated New Taipei annexes are placed by ROC year or session.
+OCR_ENGINE = "RapidOCR PP-OCRv5 mobile"
+OCR_SCOPE = r"""council_code IN ('new_taipei', 'taipei') AND file_format = 'pdf' AND NOT coalesce(source_data ? 'ocr', false)
+    AND (parse_status = 'parsed' OR (parse_status = 'failed' AND source_data ->> 'fetch_error' = 'empty text'))
+    AND (document_date >= '2025-01-01' OR (document_date IS NULL AND source_key LIKE 'ntpbook:%%'
+         AND title ~ '11[45]年|11[45][01][0-9]{3}|第4屆第([6-9]|10)次臨時會|第4屆第[5-8]次定期會'))"""
+
+
+def step_ocr_text(conn, shard=(0, 1), limit=None):
+    """OCR image-only pages of 2025-2026 PDFs and keep embedded text for the other pages."""
+    import numpy as np
+    from rapidocr import LangRec, ModelType, OCRVersion, RapidOCR
+    engine = RapidOCR(params={"Rec.lang_type": LangRec.CH, "Rec.ocr_version": OCRVersion.PPOCRV5,
+                              "Rec.model_type": ModelType.MOBILE, "Global.log_level": "error"})
+    fetcher = Fetcher(min_interval=1.0)
+    with conn.cursor() as cur:
+        cur.execute(f"""SELECT document_id, source_url FROM proceedings.documents WHERE {OCR_SCOPE} AND document_id %% %s = %s
+                        ORDER BY council_code, document_id LIMIT %s""", (shard[1], shard[0], limit))
+        rows = cur.fetchall()
+    conn.commit()
+    log("ocr-text documents", len(rows))
+    changed = pages_done = 0
+    for done, (document_id, url) in enumerate(rows, 1):
+        try:
+            body = fetcher.get(url, attempts=3).content
+            parts, scores, ocr_pages = [], [], 0
+            with pymupdf_open(body) as pdf:
+                total = pdf.page_count
+                for page in pdf:
+                    text = page.get_text()
+                    # Real text layers run to hundreds of characters; a few stray ones mean a scanned page.
+                    if len(text.strip()) >= 20 or not page.get_images():
+                        parts.append(text)
+                        continue
+                    pix = page.get_pixmap(dpi=200)
+                    image = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.h, pix.w, pix.n)[:, :, :3]
+                    result = engine(image[:, :, ::-1])
+                    parts.append("\n".join(result.txts or []))
+                    scores.extend(float(s) for s in (result.scores or []))
+                    ocr_pages += 1
+            marker = {"ocr": {"engine": OCR_ENGINE, "pages": ocr_pages, "of": total,
+                              "avg_score": round(sum(scores) / len(scores), 3) if scores else None}}
+            text = clean("\n".join(parts)).strip()
+            with conn.cursor() as cur:
+                if ocr_pages and text:
+                    cur.execute("""UPDATE proceedings.documents SET content_text = %s, content_sha256 = %s, parse_status = 'parsed',
+                                   source_data = (coalesce(source_data, '{}'::jsonb) - 'fetch_error') || %s, updated_at = now()
+                                   WHERE document_id = %s""", (text, hashlib.sha256(text.encode()).hexdigest(), Jsonb(marker), document_id))
+                    changed += 1
+                    pages_done += ocr_pages
+                else:
+                    # Remember the check, without touching updated_at, so re-runs and the sync skip it.
+                    cur.execute("UPDATE proceedings.documents SET source_data = coalesce(source_data, '{}'::jsonb) || %s WHERE document_id = %s",
+                                (Jsonb(marker), document_id))
+            conn.commit()
+        except Exception as err:  # one bad document must not stop a long run
+            conn.rollback()
+            log("ocr-text failed", document_id, str(err)[:160])
+        if done % 25 == 0:
+            log("ocr-text progress", done, "/", len(rows), "changed", changed, "ocr pages", pages_done)
+    log("ocr-text finished changed", changed, "ocr pages", pages_done)
+
+
+def pymupdf_open(body):
+    import pymupdf
+    return pymupdf.open(stream=body, filetype="pdf")
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("step", choices=[*STEPS, "fetch-text"])
+    parser.add_argument("step", choices=[*STEPS, "fetch-text", "ocr-text"])
     parser.add_argument("--council")
     parser.add_argument("--interval", type=float, default=1.0)
     parser.add_argument("--doc-types", default="議事錄,會議紀錄,速記錄,公報,議程,其他")
@@ -1151,6 +1219,8 @@ def main():
         if args.step == "fetch-text":
             step_fetch_text(conn, args.council, 200, args.interval, args.doc_types.split(","), limit=args.limit,
                             shard=tuple(int(x) for x in args.shard.split("/")), max_db_gb=args.max_db_gb, agency=args.agency)
+        elif args.step == "ocr-text":
+            step_ocr_text(conn, shard=tuple(int(x) for x in args.shard.split("/")), limit=args.limit)
         else:
             STEPS[args.step](conn)
     log("step complete", args.step)
