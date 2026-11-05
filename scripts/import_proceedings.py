@@ -1127,9 +1127,193 @@ def step_fetch_text(conn, council, batch, interval, doc_types, newest_first=True
     log("fetch-text finished", council, "parsed", done, "failed", failed)
 
 
+# Minutes only: shorthand records repeat the same votes in speech, and the word 無記名 must not count as named.
+TAIPEI_NAMED_DOCS = r"""council_code = 'taipei' AND parse_status = 'parsed' AND doc_type = '會議紀錄'
+    AND content_text ~ '(^|[^無])記\s*名\s*表\s*決|唱\s*名\s*表\s*決'
+    AND content_text ~ '贊\s*成\s*(議\s*員|者)\s*[：:（(]|反\s*對\s*(議\s*員|者)\s*[：:（(]'"""
+# Named lists in wording the filter above misses: 提付表決 with no 記名, and 贊成者計有 with no opposing list.
+TAIPEI_VOTE_DOCS = f"""({TAIPEI_NAMED_DOCS}) OR (council_code = 'taipei' AND parse_status = 'parsed'
+    AND source_key IN ('2:201700010003', '2:0910710re'))"""
+TP_PAGE_NO = re.compile(r"\n[ \t　]*\n[ \t　]*\d{1,3}[ \t　]*(?=\n)")
+TP_YES = re.compile(r"贊成(?:議員|者|委員會意見[^：:。]{0,30}?者)?(?:計有|計|共)?(?:[：:]|(?=\d+[位人]))")
+TP_NO = re.compile(r"[；;，,。）)]?反對(?:議員|者)?(?:計有|計|共)?(?:[：:，,、]|(?=\d+[位人]))")
+TP_ABSTAIN = re.compile(r"[；;，,。）)]?棄權(?:議員|者)?(?:計有|計|共)?(?:[：:，,、]|(?=\d+[位人]))")
+TP_RESULT = re.compile(r"再?表決結果[：:]?((?:審查意見)?(?:不通過|未通過|不同意|通過|否決|同意))?")
+TP_COUNT = re.compile(r"[，,、]?(?:計有|計|共|等)?[（(]?(\d+)[位人][）)]?$")
+TP_NAME = re.compile(r"[一-鿿]{2,5}")
+
+
+def tp_ballot_list(body):
+    """Split one position's text into names and its stated count; count is None when the source states none."""
+    body = body.strip("，,；;。、 ")
+    found = TP_COUNT.search(body)
+    count = int(found.group(1)) if found else None
+    tokens = re.split(r"[、，,]", body[:found.start()] if found else body)
+    # Committee minutes write 張三議員 inside the list, while plenary minutes write 張三.
+    return [re.sub(r"議員$", "", t) for t in tokens if t and t != "無"], count
+
+
+def tp_method(context):
+    """Name the method from the words nearest the vote, because one passage can mention several."""
+    hits = list(re.finditer(r"無記名|不記名|唱名|記名|舉手", context))
+    word = hits[-1].group() if hits else ""
+    return {"無記名": "無記名", "不記名": "無記名", "唱名": "唱名", "記名": "記名", "舉手": "舉手"}.get(word, "其他")
+
+
+def tp_subject(context):
+    """Keep the item and its motion; the full wording stays in the linked document."""
+    context = re.split(r"在場議員", context)[0] if "在場議員" in context[-160:] else context
+    quoted = re.search(r"「[^「」]*」[^「」]{0,24}提[議案][：:]?「[^「」]*」[^「」]*$", context)
+    if quoted:
+        return quoted.group()[:500]
+    tail = re.split(r"議決[：:][^。]*。", context)[-1]
+    # Older minutes put the vote in a note after its resolution, leaving nothing useful behind the split.
+    return (tail if len(tail) >= 30 else context)[-300:]
+
+
+def parse_taipei_votes(text):
+    """Find each stated vote in Taipei minutes; whitespace is dropped first because names wrap across lines."""
+    flat = re.sub(r"\s+", "", TP_PAGE_NO.sub("\n", text))
+    votes, previous_end = [], 0
+    for yes in TP_YES.finditer(flat):
+        if yes.start() < previous_end:
+            continue
+        window = flat[yes.end():yes.end() + 2500]
+        result = TP_RESULT.search(window)
+        stop = result.start() if result else len(window)
+        no = TP_NO.search(window, 0, stop)
+        abstain = TP_ABSTAIN.search(window, no.end() if no else 0, stop)
+        tail_from = abstain.end() if abstain else no.end() if no else 0
+        ended = re.search(r"議決[：:]|。", window[tail_from:stop])
+        tail_end = tail_from + ended.start() if ended else stop
+        yes_body = window[:no.start() if no else abstain.start() if abstain else tail_end]
+        # With no opposing list to bound it, trailing words such as 通過 would otherwise read as a name.
+        counted = None if no or abstain else re.search(r"\d+[位人][）)]?", yes_body)
+        yes_names, yes_count = tp_ballot_list(yes_body[:counted.end()] if counted else yes_body)
+        # Unanimous votes omit the opposing list entirely, so an absent list is unstated rather than a parse failure.
+        if not no and not yes_names and yes_count is None:
+            continue
+        no_names, no_count = tp_ballot_list(window[no.end():abstain.start() if abstain else tail_end]) if no else ([], None)
+        abstain_names, abstain_count = tp_ballot_list(window[abstain.end():tail_end]) if abstain else ([], None)
+        close_to = result.end() if result and result.start() - tail_end < 8 else tail_end
+        context = flat[max(previous_end, yes.start() - 900):yes.start()]
+        present = re.search(r"在場議員(?:含主席)?(?:計|共)?(\d+)[位人]", context[-120:])
+        outcome = result.group(1) if result and close_to == result.end() else None
+        if outcome is None:
+            noted = re.search(r"議決[：:](不通過|未通過|通過|否決)[^。]{0,10}。（案經[^。]*$", context)
+            outcome = noted.group(1) if noted else None
+        named = bool(yes_names or no_names or abstain_names)
+        method = tp_method(context[-160:])
+        votes.append({"subject": tp_subject(context), "method": "記名" if method == "其他" and named else method,
+                      "method_inferred": method == "其他" and named, "result_text": outcome,
+                      "present": int(present.group(1)) if present else None,
+                      "passed": None if outcome is None else outcome.endswith(("通過", "同意")) and not outcome.endswith(("不通過", "未通過", "不同意")),
+                      "revote": bool(re.search(r"再表決|重行表決|再提付", context[-160:])),
+                      "lists": {"贊成": yes_names, "反對": no_names, "棄權": abstain_names},
+                      "counts": {"贊成": yes_count, "反對": no_count, "棄權": abstain_count}})
+        previous_end = yes.end() + close_to
+    return votes
+
+
+def tp_split_names(token, roster):
+    """Split names the source separated only by a line break, and only when every part is a known member."""
+    if token in roster and roster[token] >= 3:
+        return [token]
+    for size in (2, 3, 4):
+        head, rest = token[:size], token[size:]
+        if roster.get(head, 0) >= 3 and rest:
+            parts = tp_split_names(rest, roster)
+            if parts and all(roster.get(p, 0) >= 3 for p in parts):
+                return [head, *parts]
+    return [token]
+
+
+def step_taipei_votes(conn, dry_run=False):
+    """Load votes stated in Taipei minutes; suspect votes are flagged in source_data rather than corrected."""
+    with conn.cursor() as cur:
+        cur.execute(f"""SELECT document_id, source_key, meeting_id, document_date, source_url, title, content_text
+                        FROM proceedings.documents WHERE {TAIPEI_VOTE_DOCS} ORDER BY document_date, document_id""")
+        docs = cur.fetchall()
+    parsed = [(doc, parse_taipei_votes(doc[6])) for doc in docs]
+    roster = {}
+    for _, votes in parsed:
+        for vote in votes:
+            for names in vote["lists"].values():
+                for name in names:
+                    if TP_NAME.fullmatch(name) and len(name) <= 4:
+                        roster[name] = roster.get(name, 0) + 1
+    sql = """INSERT INTO proceedings.votes (council_code, source_key, meeting_id, document_id, voted_at, voted_at_text, vote_method,
+             subject, passed, present_count, yes_count, no_count, abstain_count, source_url, source_data)
+             VALUES ('taipei', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+             ON CONFLICT (council_code, source_key) DO UPDATE SET meeting_id = EXCLUDED.meeting_id, document_id = EXCLUDED.document_id,
+             voted_at = EXCLUDED.voted_at, voted_at_text = EXCLUDED.voted_at_text, vote_method = EXCLUDED.vote_method,
+             subject = EXCLUDED.subject, passed = EXCLUDED.passed, present_count = EXCLUDED.present_count, yes_count = EXCLUDED.yes_count,
+             no_count = EXCLUDED.no_count, abstain_count = EXCLUDED.abstain_count, source_url = EXCLUDED.source_url,
+             source_data = EXCLUDED.source_data, updated_at = now()
+             RETURNING vote_id"""
+    totals = {"votes": 0, "ballots": 0, "mismatch": 0, "conflict": 0, "bad_names": 0, "no_outcome": 0, "no_present": 0, "over_present": 0}
+    for doc, votes in parsed:
+        document_id, source_key, meeting_id, document_date, source_url, title, _ = doc
+        keys = []
+        with conn.cursor() as cur:
+            for number, vote in enumerate(votes, 1):
+                lists = {p: [part for name in names for part in tp_split_names(name, roster)] for p, names in vote["lists"].items()}
+                bad = sorted({n for names in lists.values() for n in names if not TP_NAME.fullmatch(n)})
+                ambiguous = sorted(n for n in set(sum(lists.values(), [])) if sum(n in ns for ns in lists.values()) > 1)
+                listed = {p: len(ns) for p, ns in lists.items()}
+                counts = vote["counts"]
+                # A list-free vote legitimately states counts only, so only compare when names were given.
+                mismatch = any(lists[p] and counts[p] is not None and counts[p] != listed[p] for p in lists)
+                extra = {"parser": "taipei-minutes", "time_precision": "date", "document_title": title}
+                if vote["revote"]:
+                    extra["revote"] = True
+                if vote["method_inferred"]:
+                    extra["method_inferred"] = True
+                if vote["result_text"]:
+                    extra["result_text"] = vote["result_text"]
+                if bad:
+                    extra["unparsed_names"] = bad
+                    totals["bad_names"] += 1
+                if ambiguous:
+                    extra["ballot_conflicts"] = {n: [p for p, ns in lists.items() if n in ns] for n in ambiguous}
+                    totals["conflict"] += 1
+                if mismatch:
+                    extra["count_mismatch"] = {"reported": counts, "listed": listed}
+                    totals["mismatch"] += 1
+                totals["no_outcome"] += vote["passed"] is None
+                totals["no_present"] += vote["present"] is None
+                stated = [counts[p] if counts[p] is not None else listed[p] for p in lists]
+                if vote["present"] is not None and sum(stated) > vote["present"]:
+                    extra["over_present"] = True
+                    totals["over_present"] += 1
+                totals["votes"] += 1
+                seats = [(n, p) for p, names in lists.items() for n in dict.fromkeys(names)
+                         if n not in ambiguous and TP_NAME.fullmatch(n)]
+                totals["ballots"] += len(seats)
+                key = f"minutes:{source_key}:{number}"
+                keys.append(key)
+                if dry_run:
+                    vote["checked"] = {"lists": lists, "extra": extra}
+                    continue
+                cur.execute(sql, (key, meeting_id, document_id, document_date, document_date.isoformat(), vote["method"], vote["subject"],
+                                  vote["passed"], vote["present"], counts["贊成"], counts["反對"], counts["棄權"], source_url, Jsonb(extra)))
+                vote_id = cur.fetchone()[0]
+                cur.execute("DELETE FROM proceedings.vote_ballots WHERE vote_id = %s", (vote_id,))
+                cur.executemany("INSERT INTO proceedings.vote_ballots (vote_id, member_name, position) VALUES (%s, %s, %s)",
+                                [(vote_id, n, p) for n, p in seats])
+            if not dry_run:
+                # A re-parse that finds fewer votes must not leave the old surplus behind.
+                cur.execute("DELETE FROM proceedings.votes WHERE council_code = 'taipei' AND document_id = %s AND NOT source_key = ANY(%s)",
+                            (document_id, keys))
+        if not dry_run:
+            conn.commit()
+    log("taipei-votes docs", len(docs), totals)
+    return parsed, roster
+
+
 STEPS = {"ly-meets": step_ly_meets, "ly-votes": step_ly_votes, "ly-bills": step_ly_bills, "ly-gazette": step_ly_gazette,
          "taichung-bills": step_taichung_bills, "taichung-minutes": step_taichung_minutes,
-         "taipei-docs": step_taipei_docs, "taipei-bills": step_taipei_bills,
+         "taipei-docs": step_taipei_docs, "taipei-bills": step_taipei_bills, "taipei-votes": step_taipei_votes,
          "new-taipei-books": step_new_taipei_books, "new-taipei-bills": step_new_taipei_bills,
          "new-taipei-html": step_new_taipei_html, "new-taipei-current": step_new_taipei_current, "ly-gazette-files": step_ly_gazette_files, "ly-backfill": step_ly_backfill,
          "ly-bills-gaps": step_ly_bills_gaps, "ly-bills-status": step_ly_bills_status}
@@ -1214,6 +1398,7 @@ def main():
     parser.add_argument("--agency", help="only documents with this source_data.agencyType")
     parser.add_argument("--max-db-gb", type=float, help="pause before the database grows past this size")
     parser.add_argument("--shard", default="0/1", help="k/n: only process documents whose id modulo n equals k")
+    parser.add_argument("--dry-run", action="store_true", help="taipei-votes only: parse and report without writing")
     args = parser.parse_args()
     with connect() as conn:
         if args.step == "fetch-text":
@@ -1221,6 +1406,8 @@ def main():
                             shard=tuple(int(x) for x in args.shard.split("/")), max_db_gb=args.max_db_gb, agency=args.agency)
         elif args.step == "ocr-text":
             step_ocr_text(conn, shard=tuple(int(x) for x in args.shard.split("/")), limit=args.limit)
+        elif args.step == "taipei-votes":
+            step_taipei_votes(conn, dry_run=args.dry_run)
         else:
             STEPS[args.step](conn)
     log("step complete", args.step)
