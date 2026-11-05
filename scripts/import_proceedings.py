@@ -559,17 +559,18 @@ def taichung_doc_type(chapter):
 def step_taichung_minutes(conn):
     """Catalog the minutes index; attachment text is fetched later by the fetch-text step."""
     fetcher = Fetcher(min_interval=1.5)
-    page = load_page("taichung-minutes")
+    # Keep existing rows untouched: their source_data holds fetch errors from earlier text runs.
     sql = """INSERT INTO proceedings.documents (council_code, source_key, doc_type, title, document_date, source_url, source_data)
              VALUES ('taichung', %s, %s, %s, %s, %s, %s)
-             ON CONFLICT (council_code, source_key) DO UPDATE SET doc_type = EXCLUDED.doc_type, title = EXCLUDED.title,
-             document_date = EXCLUDED.document_date, source_url = EXCLUDED.source_url, source_data = EXCLUDED.source_data,
-             updated_at = now()"""
-    while True:
-        data = fetcher.get(f"{TAICHUNG_API}/OldMinutesSearch/List", params={"pageNumber": page, "pageSize": 500}).json()["data"]
-        rows = data.get("data") or []
-        if not rows:
-            break
+             ON CONFLICT (council_code, source_key) DO NOTHING"""
+    url = f"{TAICHUNG_API}/OldMinutesSearch/List"
+    for agency in ("臺中市議會", "合併前臺中市議會", "合併前臺中縣議會"):
+        # The list has no stable order, so paging skips rows; read each agency in a single response.
+        total = fetcher.get(url, params={"pageNumber": 1, "pageSize": 1, "agencyType": agency}).json()["data"]["totalCount"]
+        rows = fetcher.get(url, params={"pageNumber": 1, "pageSize": total, "agencyType": agency}).json()["data"]["data"]
+        if len(rows) != total:
+            raise RuntimeError(f"{agency}: expected {total} rows in one response, got {len(rows)}")
+        added = 0
         with conn.cursor() as cur:
             for r in rows:
                 cur.execute(sql, (r["recordOldId"], taichung_doc_type(r.get("chapter")),
@@ -577,10 +578,9 @@ def step_taichung_minutes(conn):
                                   roc_date(r.get("section")),
                                   f"{TAICHUNG_API}/Attachment/AttachmentDownload?attachmentId={r.get('attachmentId')}",
                                   Jsonb(clean(r))))
+                added += cur.rowcount
         conn.commit()
-        log("taichung-minutes page", page, "/", data.get("totalPages"), "total", data.get("totalCount"))
-        save_page("taichung-minutes", page + 1)
-        page += 1
+        log("taichung-minutes", agency, "total", total, "added", added)
 
 
 # ---------- Taipei ----------
@@ -927,6 +927,98 @@ def step_new_taipei_html(conn):
             save_page(step, 2)
 
 
+NTPBOOK = "https://ntpbook.ntp.gov.tw"
+NTPBOOK_LISTS = ("/Home/BookAgenda/ViewExamAnnex", "/Home/BookAgenda/ViewSummaryAnnex",
+                 "/Home/BookAgenda/ViewNonSummaryAnnex", "/Home/BookAnnex")
+
+
+def ntpbook_anchors(page):
+    """Yield (roc_date, label, href) in page order; a date applies to the links in its table row."""
+    date = None
+    for m in re.finditer(r"""<tr\b|>\s*(\d{3}-\d{2}-\d{2})\s*<|<a\b[^>]*href="([^"]+)"[^>]*>(.*?)</a>""", page, re.S | re.I):
+        if m.group(0).lower().startswith("<tr"):
+            date = None
+        elif m.group(1):
+            date = m.group(1)
+        else:
+            yield date, clean(strip_html(m.group(3))).strip(), html.unescape(m.group(2))
+
+
+def ntpbook_body(page):
+    """Cut the site navigation and footer so stored text starts at the record itself."""
+    text = clean(strip_html(re.sub(r"<select\b.*?</select>", " ", page, flags=re.S | re.I)))
+    start, end = text.find("進階檢索"), text.rfind("新北市議會，機關地址")
+    return text[start + 4 if start >= 0 else 0:end if end >= 0 else None].strip()
+
+
+def ntpbook_doc_type(label):
+    if "紀錄" in label or "記錄" in label:
+        return "會議紀錄"
+    return "議事錄" if "議事錄" in label else "其他"
+
+
+def step_new_taipei_current(conn):
+    """Import the current-term books, which are published only on ntpbook and not as past-minutes files."""
+    fetcher = Fetcher(min_interval=1.0)
+    sql = """INSERT INTO proceedings.documents (council_code, source_key, doc_type, title, document_date, source_url, file_format,
+             content_text, content_sha256, parse_status, source_data)
+             VALUES ('new_taipei', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+             ON CONFLICT (council_code, source_key) DO NOTHING"""
+
+    def save(key, doc_type, title, date, url, file_format, text, data):
+        digest = hashlib.sha256(text.encode()).hexdigest() if text else None
+        parsed = None
+        if date:
+            year, month, day = date.split("-")
+            parsed = f"{int(year) + 1911}-{month}-{day}"
+        with conn.cursor() as cur:
+            cur.execute(sql, (key, doc_type, title, parsed, url, file_format, text, digest, "parsed" if text else "pending", Jsonb(data)))
+
+    home = fetcher.get(f"{NTPBOOK}/Home").content.decode("utf-8", "replace")
+    books = [(href, label) for _, label, href in ntpbook_anchors(home) if href.startswith("/Home/BookAgenda?") and label.startswith("第4屆")]
+    log("new-taipei-current books", len(books))
+    for href, book in books:
+        book_id = href.rsplit("=", 1)[1]
+        step = f"new-taipei-current-{book_id}"
+        if load_page(step) > 1:
+            continue
+        base = {"term": "4", "book": book, "book_id": book_id}
+        page = fetcher.get(f"{NTPBOOK}{href}&ShowMode=PC").content.decode("utf-8", "replace")
+        records = files = 0
+        for date, label, target in ntpbook_anchors(page):
+            title = clean(f"{book} {date or ''} {label}")
+            path = target.split("?")[0]
+            data = {**base, "label": label, "roc_date": date}
+            try:
+                if "/Mam/" in target:
+                    url = requests.compat.urljoin(NTPBOOK, target)
+                    save("ntpbook:" + path.rsplit("/", 1)[1], ntpbook_doc_type(label), title, date, url,
+                         path.rsplit(".", 1)[-1].lower(), None, data)
+                    files += 1
+                elif path in ("/Home/BookAgenda/ViewRecord", "/Home/BookAgenda/ViewExamRecord"):
+                    url = requests.compat.urljoin(NTPBOOK, target)
+                    text = ntpbook_body(fetcher.get(url, attempts=3).content.decode("utf-8", "replace"))
+                    # A scheduled day with no published record has only the heading.
+                    if len(text) >= 200:
+                        save("ntpbook:" + hashlib.sha1(target.encode()).hexdigest()[:20], "議事錄", title, date, url, "html", text, data)
+                        records += 1
+                elif path in NTPBOOK_LISTS or path == "/Home/BookAnnex/DisplayedInHomeWithList":
+                    listing = fetcher.get(requests.compat.urljoin(NTPBOOK, target), attempts=3).content.decode("utf-8", "replace")
+                    for _, name, file_url in ntpbook_anchors(listing):
+                        if "/Mam/" not in file_url:
+                            continue
+                        file_path = file_url.split("?")[0]
+                        save("ntpbook:" + file_path.rsplit("/", 1)[1], ntpbook_doc_type(name), clean(f"{book} {date or ''} {label} {name}"), date,
+                             requests.compat.urljoin(NTPBOOK, file_url), file_path.rsplit(".", 1)[-1].lower(), None,
+                             {**data, "file_label": name})
+                        files += 1
+            except RuntimeError as err:
+                log("new-taipei-current skip", target[:120], str(err)[:80])
+        conn.commit()
+        log("new-taipei-current book", book, "records", records, "files", files)
+        save_page(step, 2)
+
+
 # ---------- Document text ----------
 
 def text_from_bytes(body, url):
@@ -1039,7 +1131,7 @@ STEPS = {"ly-meets": step_ly_meets, "ly-votes": step_ly_votes, "ly-bills": step_
          "taichung-bills": step_taichung_bills, "taichung-minutes": step_taichung_minutes,
          "taipei-docs": step_taipei_docs, "taipei-bills": step_taipei_bills,
          "new-taipei-books": step_new_taipei_books, "new-taipei-bills": step_new_taipei_bills,
-         "new-taipei-html": step_new_taipei_html, "ly-gazette-files": step_ly_gazette_files, "ly-backfill": step_ly_backfill,
+         "new-taipei-html": step_new_taipei_html, "new-taipei-current": step_new_taipei_current, "ly-gazette-files": step_ly_gazette_files, "ly-backfill": step_ly_backfill,
          "ly-bills-gaps": step_ly_bills_gaps, "ly-bills-status": step_ly_bills_status}
 
 
