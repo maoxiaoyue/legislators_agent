@@ -20,10 +20,16 @@ func TestProceedingsSchema_IsRepeatable(t *testing.T) {
 	for _, stmt := range proceedingsSchemaStatements {
 		s := strings.TrimSpace(stmt)
 		switch {
-		case strings.HasPrefix(s, "CREATE"):
+		case strings.HasPrefix(s, "CREATE"), strings.Contains(s, "ADD COLUMN"):
 			if !strings.Contains(s, "IF NOT EXISTS") {
-				t.Errorf("CREATE without IF NOT EXISTS: %.60s", s)
+				t.Errorf("schema change without IF NOT EXISTS: %.60s", s)
 			}
+		case strings.Contains(s, "DROP CONSTRAINT"):
+			if !strings.Contains(s, "IF EXISTS") {
+				t.Errorf("DROP without IF EXISTS: %.60s", s)
+			}
+		case strings.Contains(s, "ADD CONSTRAINT"):
+			// 緊接在同名 DROP CONSTRAINT IF EXISTS 之後，所以可重複執行。
 		case strings.HasPrefix(s, "INSERT"):
 			if !strings.Contains(s, "ON CONFLICT") {
 				t.Errorf("INSERT without ON CONFLICT: %.60s", s)

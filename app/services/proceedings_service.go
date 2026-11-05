@@ -74,6 +74,10 @@ var proceedingsSchemaStatements = []string{
 		UNIQUE (council_code, document_id),
 		FOREIGN KEY (council_code, meeting_id) REFERENCES proceedings.meetings (council_code, meeting_id)
 	)`,
+	`ALTER TABLE proceedings.documents ADD COLUMN IF NOT EXISTS source_data jsonb`,
+	// linked：這筆只是目錄（如公報議程），全文存在 source_data.text_documents 指向的文件。
+	`ALTER TABLE proceedings.documents DROP CONSTRAINT IF EXISTS documents_parse_status_check`,
+	`ALTER TABLE proceedings.documents ADD CONSTRAINT documents_parse_status_check CHECK (parse_status IN ('pending', 'parsed', 'failed', 'linked'))`,
 	`CREATE INDEX IF NOT EXISTS documents_meeting_idx ON proceedings.documents (meeting_id)`,
 	`CREATE INDEX IF NOT EXISTS documents_date_idx ON proceedings.documents (council_code, document_date)`,
 	`CREATE INDEX IF NOT EXISTS documents_updated_idx ON proceedings.documents (updated_at)`,
