@@ -1311,9 +1311,233 @@ def step_taipei_votes(conn, dry_run=False):
     return parsed, roster
 
 
+LYN_HEADER = re.compile(r"立法院\s*(?:朝野)?\s*黨團協商結論[：:]?(?=\s*(?:[壹一][、.]\s*)?時\s*間)")
+# Bill conclusions are usually pasted as a picture, leaving only the signature block after it.
+LYN_IMAGE = re.compile(r"\[pic\](?:\s|\[pic\])*(?=協\s*商\s*主\s*持\s*人\s*[：:])")
+LYN_FIELD = r"(?:^|\n)\s*(?:[壹貳參肆伍一二三四五][、.]\s*)?{}\s*[：:]"
+LYN_LABELS = ["時\\s*間", "地\\s*點", "法案名稱", "協商主題", "案\\s*由", "決定事項", "協商結論",
+              "(?:協\\s*商\\s*)?主\\s*持\\s*人", "協\\s*商\\s*代\\s*表"]
+LYN_NAME_LINE = re.compile(r"[\s　]*(?:[一-鿿A-Za-z‧．·・'’]+(?:[（(][一-鿿]{0,4}代[）)])?[\s　]*"
+                           r"|[（(][一-鿿]{0,4}代[）)][\s　]*)+")
+LYN_NOT_NAME = re.compile(r"^第.+條$|附件|附帶決議|說明|立法院|協商|主席|決定|事項|條文|修正")
+LYN_PAREN = re.compile(r"[（(][^）)]*[）)]|[\s　]")
+
+
+def lyn_field(block, label, stop_labels):
+    """Read one labelled field up to the next label, because a field may wrap across lines."""
+    found = re.search(LYN_FIELD.format(label), block)
+    if not found:
+        return None, None
+    stops = [m.start() for s in stop_labels for m in [re.search(LYN_FIELD.format(s), block[found.end():])] if m]
+    end = found.end() + min(stops) if stops else len(block)
+    return block[found.end():end], found.start()
+
+
+def lyn_signature(text, label, known):
+    """Return the name lines after a label; they end at the first line that is not purely names of members."""
+    found = re.search(LYN_FIELD.format(label), text)
+    if not found:
+        return None
+    kept = []
+    for number, line in enumerate(text[found.end():].split("\n")):
+        if not line.strip():
+            if number == 0:
+                continue
+            break
+        pieces = [p for p in re.split(r"[\s　]+", LYN_PAREN.sub(" ", line)) if p]
+        if (not LYN_NAME_LINE.fullmatch(line) or any(LYN_NOT_NAME.search(p) for p in pieces)
+                or (kept and len(pieces) > 1 and not any(name_key(p) in known for p in pieces))):
+            # The rejected line may still open with the tail of a name cut at the previous line end.
+            tail = [p for p in re.split(r"[\s　]+", LYN_PAREN.sub(" ", kept[-1])) if p] if kept else []
+            if tail and pieces and name_key(tail[-1] + pieces[0]) in known:
+                kept.append(pieces[0])
+            break
+        kept.append(line)
+        if len(kept) >= 8:
+            break
+    return "\n".join(kept)
+
+
+def lyn_segment(token, known):
+    """Split names that the layout glued together, accepting only splits made entirely of known members."""
+    if len(token) < 4 or name_key(token) in known:
+        return [token]
+    best = {0: []}
+    for i in range(len(token)):
+        if i not in best:
+            continue
+        for size in (2, 3, 4):
+            part = token[i:i + size]
+            if len(part) == size and name_key(part) in known and i + size not in best:
+                best[i + size] = best[i] + [part]
+    return best.get(len(token)) or [token]
+
+
+def lyn_names(text, known):
+    """Turn a signature block into names and the names signed by proxy, repairing line wraps and glued columns."""
+    text = re.sub(r"[（(]\s*\n\s*", "（", text or "")
+    merged, pending = [], ""
+    for piece in (p for p in re.split(r"[\s　]+", text) if p):
+        bare = LYN_PAREN.sub("", piece)
+        previous = LYN_PAREN.sub("", merged[-1]) if merged else ""
+        if previous and not pending and name_key(previous) not in known and name_key(previous + bare) in known_prefixes(known):
+            merged[-1] += piece  # the rest of a name the line wrap cut in two
+            continue
+        if merged and (not bare or (re.match(r"[A-Za-z]", bare)
+                                    and name_key(LYN_PAREN.sub("", merged[-1]) + bare) in known_prefixes(known))):
+            merged[-1] += piece  # a lone (代) or the romanised half of a Chinese-led indigenous name
+            continue
+        if len(bare) == 1 and not pending:
+            if merged and name_key(LYN_PAREN.sub("", merged[-1]) + bare) in known:
+                merged[-1] += piece
+            else:
+                pending = piece
+            continue
+        merged.append(pending + piece)
+        pending = ""
+    if pending:
+        merged.append(pending)
+    names, proxies = [], []
+    for token in merged:
+        bare = LYN_PAREN.sub("", token)
+        # Committee minutes write 陳召集委員其邁; the title sits between surname and given name.
+        untitled = re.sub(r"(?:召集)?委員", "", bare)
+        parts = lyn_segment(untitled if untitled != bare and 2 <= len(untitled) <= 4 else bare, known)
+        names += parts
+        if re.search(r"代[）)]", token):
+            proxies.append(parts[-1])
+    return names, proxies
+
+
+_KNOWN_PREFIXES = {}
+
+
+def known_prefixes(known):
+    """Every prefix of a member name, so a romanised piece joins only the name it really continues."""
+    key = id(known)
+    if key not in _KNOWN_PREFIXES:
+        _KNOWN_PREFIXES[key] = {n[:i] for n in known for i in range(1, len(n) + 1)}
+    return _KNOWN_PREFIXES[key]
+
+
+def lyn_date(text):
+    """Convert an ROC date; small years come from garbled text, so they are rejected rather than read as the 1920s."""
+    found = re.search(r"(\d{2,4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*[日曰]?", text or "")
+    try:
+        year = int(found.group(1)) if found else 0
+        if year >= 80:
+            return dt.date(year + 1911 if year < 1911 else year, int(found.group(2)), int(found.group(3)))
+    except ValueError:
+        pass
+    return None
+
+
+def parse_ly_negotiations(text, known):
+    """Find each 黨團協商結論 in a gazette; conclusions pasted as pictures keep only their signers and agenda item."""
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    found, covered = [], []
+    for head in LYN_HEADER.finditer(text):
+        rest = text[head.end():head.end() + 8000]
+        sign = re.search(LYN_FIELD.format(LYN_LABELS[8]), rest)
+        block = rest[:sign.end() + 1500] if sign else rest[:3000]
+        if not sign:
+            stop = re.search(r"\n\s*主席[：:]|\n\s*-{5,}", block)
+            block = block[:stop.start()] if stop else block
+        when, _ = lyn_field(block, LYN_LABELS[0], LYN_LABELS[1:])
+        where, _ = lyn_field(block, LYN_LABELS[1], LYN_LABELS[2:])
+        topic = next((v for lab in LYN_LABELS[2:5] for v in [lyn_field(block, lab, LYN_LABELS[5:])[0]] if v), None)
+        body = None
+        for lab in LYN_LABELS[5:7]:
+            body, _ = lyn_field(block, lab, LYN_LABELS[7:])
+            if body is not None:
+                break
+        chair_at = re.search(LYN_FIELD.format(LYN_LABELS[7]), block)
+        if body is None:
+            # Older conclusions put the decisions straight after the place, with no 決定事項 label.
+            after = max((m.end() for lab in LYN_LABELS[:5] for m in [re.search(LYN_FIELD.format(lab) + r"[^\n]*", block)] if m),
+                        default=0)
+            body = block[after:chair_at.start()] if chair_at else block[after:]
+        chairs, _ = lyn_names(lyn_signature(block, LYN_LABELS[7], known), known)
+        reps, proxies = lyn_names(lyn_signature(block, LYN_LABELS[8], known), known)
+        decisions = re.sub(r"[ \t　]+", " ", (body or "").replace("[pic]", "")).strip()
+        covered.append((head.start(), head.end() + len(block)))
+        found.append({"at_text": re.sub(r"\s+", "", when or "") or None, "on": lyn_date(when),
+                      "location": re.sub(r"\s+", "", where or "") or None,
+                      "topic": re.sub(r"\s+", " ", topic).strip() if topic else None, "decisions": decisions,
+                      "in_image": "[pic]" in (body or "") or len(re.sub(r"\s", "", decisions)) < 8,
+                      "chairs": chairs, "representatives": reps, "proxies": proxies, "has_signers": bool(reps)})
+    for image in LYN_IMAGE.finditer(text):
+        if any(a <= image.start() <= b for a, b in covered):
+            continue
+        block = text[image.end():image.end() + 1200]
+        chairs, _ = lyn_names(lyn_signature(block, LYN_LABELS[7], known), known)
+        reps, proxies = lyn_names(lyn_signature(block, LYN_LABELS[8], known), known)
+        before = text[max(0, image.start() - 5000):image.start()]
+        items = list(re.finditer(r"\n\s*[一二三四五六七八九十百]+、([^\n]+(?:\n(?!\s*[一二三四五六七八九十百]+、|\s*主席)[^\n]+){0,3})", before))
+        topic = re.sub(r"\s+", "", items[-1].group(1)) if items else None
+        found.append({"at_text": None, "on": None, "location": None, "topic": topic[:300] if topic else None, "decisions": "",
+                      "in_image": True, "chairs": chairs, "representatives": reps, "proxies": proxies, "has_signers": bool(reps)})
+    return found
+
+
+def step_ly_negotiations(conn, dry_run=False):
+    """Store each LY party-caucus conclusion once, even though gazettes reprint it in several issues."""
+    with conn.cursor() as cur:
+        cur.execute("""SELECT document_id, meeting_id, document_date, content_text FROM proceedings.documents
+                       WHERE council_code = 'ly' AND parse_status = 'parsed'
+                         AND content_text ~ '立法院\\s*(朝野)?\\s*黨團協商結論|\\[pic\\]\\s*協\\s*商\\s*主\\s*持\\s*人'
+                       ORDER BY document_date NULLS LAST, document_id""")
+        docs = cur.fetchall()
+        # The term roster can lag a new term, so names seen in recorded votes also count as members.
+        cur.execute("""SELECT name FROM public.legislator_terms UNION
+                       SELECT DISTINCT b.member_name FROM proceedings.vote_ballots b JOIN proceedings.votes v USING (vote_id)
+                       WHERE v.council_code = 'ly'""")
+        known = {name_key(n) for (n,) in cur.fetchall()}
+    # Signatures often drop the romanised half of an indigenous name, so the Chinese half alone is also a member.
+    known |= {m.group() for n in known for m in [re.match(r"[一-鿿]{2,4}(?=[A-Za-z])", n)] if m}
+    merged = {}
+    for document_id, meeting_id, document_date, text in docs:
+        for item in parse_ly_negotiations(text, known):
+            body_key = re.sub(r"\W", "", item["decisions"])
+            # Same date and wording means a reprint; picture-only conclusions are told apart by agenda item and signers.
+            alt = "" if body_key else (item["topic"] or "") + ",".join(item["representatives"])
+            key = "lyn:" + hashlib.sha1(f"{item['on'] or item['at_text']}|{body_key}|{alt}".encode("utf-8")).hexdigest()[:20]
+            if key in merged:
+                merged[key]["documents"].append(document_id)
+                continue
+            merged[key] = {**item, "document_id": document_id, "meeting_id": meeting_id, "documents": [document_id],
+                           "gazette_date": document_date,
+                           "unknown_names": sorted({n for n in item["chairs"] + item["representatives"] if name_key(n) not in known})}
+    stats = {"docs": len(docs), "conclusions": len(merged), "in_image": sum(v["in_image"] for v in merged.values()),
+             "no_date": sum(v["on"] is None for v in merged.values()), "no_signers": sum(not v["has_signers"] for v in merged.values()),
+             "with_unknown_names": sum(bool(v["unknown_names"]) for v in merged.values())}
+    if not dry_run:
+        sql = """INSERT INTO proceedings.negotiations (council_code, source_key, negotiated_on, negotiated_at_text, location, topic,
+                 decisions, content_in_image, chairs, representatives, proxies, meeting_id, document_id, source_data)
+                 VALUES ('ly', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 ON CONFLICT (council_code, source_key) DO UPDATE SET negotiated_on = EXCLUDED.negotiated_on,
+                 negotiated_at_text = EXCLUDED.negotiated_at_text, location = EXCLUDED.location, topic = EXCLUDED.topic,
+                 decisions = EXCLUDED.decisions, content_in_image = EXCLUDED.content_in_image, chairs = EXCLUDED.chairs,
+                 representatives = EXCLUDED.representatives, proxies = EXCLUDED.proxies, meeting_id = EXCLUDED.meeting_id,
+                 document_id = EXCLUDED.document_id, source_data = EXCLUDED.source_data, updated_at = now()"""
+        with conn.cursor() as cur:
+            for key, v in merged.items():
+                extra = {"documents": v["documents"], "gazette_date": v["gazette_date"].isoformat() if v["gazette_date"] else None}
+                if v["unknown_names"]:
+                    extra["unknown_names"] = v["unknown_names"]
+                if not v["has_signers"]:
+                    extra["no_signers"] = True
+                cur.execute(sql, (key, v["on"], v["at_text"], v["location"], v["topic"], v["decisions"], v["in_image"], v["chairs"],
+                                  v["representatives"], v["proxies"], v["meeting_id"], v["document_id"], Jsonb(extra)))
+            cur.execute("DELETE FROM proceedings.negotiations WHERE council_code = 'ly' AND NOT source_key = ANY(%s)", (list(merged),))
+        conn.commit()
+    log("ly-negotiations", stats)
+    return merged
+
+
 STEPS = {"ly-meets": step_ly_meets, "ly-votes": step_ly_votes, "ly-bills": step_ly_bills, "ly-gazette": step_ly_gazette,
          "taichung-bills": step_taichung_bills, "taichung-minutes": step_taichung_minutes,
-         "taipei-docs": step_taipei_docs, "taipei-bills": step_taipei_bills, "taipei-votes": step_taipei_votes,
+         "taipei-docs": step_taipei_docs, "taipei-bills": step_taipei_bills, "taipei-votes": step_taipei_votes, "ly-negotiations": step_ly_negotiations,
          "new-taipei-books": step_new_taipei_books, "new-taipei-bills": step_new_taipei_bills,
          "new-taipei-html": step_new_taipei_html, "new-taipei-current": step_new_taipei_current, "ly-gazette-files": step_ly_gazette_files, "ly-backfill": step_ly_backfill,
          "ly-bills-gaps": step_ly_bills_gaps, "ly-bills-status": step_ly_bills_status}
@@ -1398,7 +1622,7 @@ def main():
     parser.add_argument("--agency", help="only documents with this source_data.agencyType")
     parser.add_argument("--max-db-gb", type=float, help="pause before the database grows past this size")
     parser.add_argument("--shard", default="0/1", help="k/n: only process documents whose id modulo n equals k")
-    parser.add_argument("--dry-run", action="store_true", help="taipei-votes only: parse and report without writing")
+    parser.add_argument("--dry-run", action="store_true", help="taipei-votes and ly-negotiations: parse and report without writing")
     args = parser.parse_args()
     with connect() as conn:
         if args.step == "fetch-text":
@@ -1406,8 +1630,8 @@ def main():
                             shard=tuple(int(x) for x in args.shard.split("/")), max_db_gb=args.max_db_gb, agency=args.agency)
         elif args.step == "ocr-text":
             step_ocr_text(conn, shard=tuple(int(x) for x in args.shard.split("/")), limit=args.limit)
-        elif args.step == "taipei-votes":
-            step_taipei_votes(conn, dry_run=args.dry_run)
+        elif args.step in ("taipei-votes", "ly-negotiations"):
+            STEPS[args.step](conn, dry_run=args.dry_run)
         else:
             STEPS[args.step](conn)
     log("step complete", args.step)
