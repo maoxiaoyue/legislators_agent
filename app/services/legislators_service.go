@@ -144,15 +144,31 @@ func (s *LegislatorsService) Import(ctx context.Context, roster *models.Legislat
 			ForeignKey(`("legislator_no") REFERENCES "legislators" ("legislator_no")`).Exec(ctx); err != nil {
 			return fmt.Errorf("create legislator_terms: %w", err)
 		}
+		if err := ensureStampFunction(ctx, tx); err != nil {
+			return err
+		}
+		for _, table := range []string{"legislators", "legislator_terms"} {
+			if err := ensureRowStamps(ctx, tx, "public", table); err != nil {
+				return err
+			}
+		}
 		if _, err := tx.NewInsert().Model(&legislators).
 			On("CONFLICT (legislator_no) DO UPDATE").Set("name = EXCLUDED.name").Exec(ctx); err != nil {
 			return fmt.Errorf("upsert legislators: %w", err)
 		}
-		if _, err := tx.NewDelete().Model((*models.LegislatorTerm)(nil)).Where("TRUE").Exec(ctx); err != nil {
-			return fmt.Errorf("clear legislator_terms: %w", err)
+		// upsert 加刪除名單外的列，而不是清表重寫，沒變的紀錄才能保留 created_at。
+		if _, err := tx.NewInsert().Model(&terms).
+			On("CONFLICT (term, legislator_no) DO UPDATE").Set("name = EXCLUDED.name, note = EXCLUDED.note").
+			Exec(ctx); err != nil {
+			return fmt.Errorf("upsert legislator_terms: %w", err)
 		}
-		if _, err := tx.NewInsert().Model(&terms).Exec(ctx); err != nil {
-			return fmt.Errorf("insert legislator_terms: %w", err)
+		keys := make([]string, len(terms))
+		for i, t := range terms {
+			keys[i] = fmt.Sprintf("%d|%s", t.Term, t.No)
+		}
+		if _, err := tx.NewDelete().Model((*models.LegislatorTerm)(nil)).
+			Where("(term::text || '|' || legislator_no) NOT IN (?)", bun.In(keys)).Exec(ctx); err != nil {
+			return fmt.Errorf("delete removed legislator_terms: %w", err)
 		}
 
 		var err error

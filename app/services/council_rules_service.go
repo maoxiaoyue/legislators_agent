@@ -158,11 +158,29 @@ func (s *CouncilRulesService) Import(ctx context.Context, set *models.CouncilRul
 		if _, err := tx.ExecContext(ctx, commentCouncilRulesSQL); err != nil {
 			return fmt.Errorf("comment column: %w", err)
 		}
-		if _, err := tx.NewDelete().Model((*models.CouncilRule)(nil)).Where("TRUE").Exec(ctx); err != nil {
-			return fmt.Errorf("clear table: %w", err)
+		if err := ensureStampFunction(ctx, tx); err != nil {
+			return err
 		}
-		if _, err := tx.NewInsert().Model(&set.Rules).Exec(ctx); err != nil {
-			return fmt.Errorf("insert rules: %w", err)
+		if err := ensureRowStamps(ctx, tx, "public", "council_rules"); err != nil {
+			return err
+		}
+		// upsert 加刪除規則檔外的列，而不是清表重寫，沒變的規則才能保留 created_at。
+		if _, err := tx.NewInsert().Model(&set.Rules).On("CONFLICT (rule_key) DO UPDATE").
+			Set("law_name = EXCLUDED.law_name, pcode = EXCLUDED.pcode, article_ref = EXCLUDED.article_ref").
+			Set("subject = EXCLUDED.subject, applies_to = EXCLUDED.applies_to, requirement = EXCLUDED.requirement").
+			Set("penalty = EXCLUDED.penalty, enforcement = EXCLUDED.enforcement").
+			Set("binding_level = EXCLUDED.binding_level, binding_reason = EXCLUDED.binding_reason").
+			Set("status = EXCLUDED.status, status_basis = EXCLUDED.status_basis").
+			Set("source_url = EXCLUDED.source_url, reviewed_on = EXCLUDED.reviewed_on").
+			Exec(ctx); err != nil {
+			return fmt.Errorf("upsert rules: %w", err)
+		}
+		keys := make([]string, len(set.Rules))
+		for i, r := range set.Rules {
+			keys[i] = r.RuleKey
+		}
+		if _, err := tx.NewDelete().Model((*models.CouncilRule)(nil)).Where("rule_key NOT IN (?)", bun.In(keys)).Exec(ctx); err != nil {
+			return fmt.Errorf("delete removed rules: %w", err)
 		}
 		var err error
 		if count, err = tx.NewSelect().Model((*models.CouncilRule)(nil)).Count(ctx); err != nil {

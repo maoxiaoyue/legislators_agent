@@ -127,6 +127,15 @@ func (s *LawsService) Import(ctx context.Context, laws []moj.Law) (*models.LawIm
 		s.log.Error("create laws catalog failed", "err", err)
 		return nil, ErrLawsImportFailed.With("reason", err.Error())
 	}
+	// 觸發器函式在開 worker 前建好；並行重建同一個函式會互相衝突。
+	err := ensureStampFunction(ctx, writer)
+	if err == nil {
+		err = ensureRowStamps(ctx, writer, lawsSchema, "catalog")
+	}
+	if err != nil {
+		s.log.Error("prepare row stamps failed", "err", err)
+		return nil, ErrLawsImportFailed.With("reason", err.Error())
+	}
 
 	workCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -175,7 +184,7 @@ send:
 	}
 
 	stats := &models.LawImportStats{}
-	err := writer.NewSelect().Model((*models.LawCatalog)(nil)).
+	err = writer.NewSelect().Model((*models.LawCatalog)(nil)).
 		ColumnExpr("count(*)").
 		ColumnExpr("count(*) FILTER (WHERE repealed)").
 		ColumnExpr("coalesce(sum(article_count), 0)").
@@ -207,13 +216,22 @@ func (s *LawsService) importOne(ctx context.Context, law moj.Law) error {
 		if _, err := tx.NewRaw("COMMENT ON TABLE ?.? IS ?", schema, table, law.Name).Exec(ctx); err != nil {
 			return fmt.Errorf("comment table: %w", err)
 		}
-		if _, err := tx.NewRaw("DELETE FROM ?.?", schema, table).Exec(ctx); err != nil {
-			return fmt.Errorf("clear table: %w", err)
+		if err := ensureRowStamps(ctx, tx, lawsSchema, strings.TrimPrefix(catalog.TableName, lawsSchema+".")); err != nil {
+			return err
 		}
+		// 逐列 upsert 而不是清表重寫，未修正的條文才能保留 created_at，updated_at 也只標出真正改過的條文。
 		if len(rows) > 0 {
-			if _, err := tx.NewInsert().Model(&rows).ModelTableExpr("?.?", schema, table).Exec(ctx); err != nil {
-				return fmt.Errorf("insert articles: %w", err)
+			if _, err := tx.NewInsert().Model(&rows).ModelTableExpr("?.?", schema, table).
+				On("CONFLICT (seq) DO UPDATE").
+				Set("article_no = EXCLUDED.article_no, label = EXCLUDED.label").
+				Set("chapter = EXCLUDED.chapter, content = EXCLUDED.content").
+				Exec(ctx); err != nil {
+				return fmt.Errorf("upsert articles: %w", err)
 			}
+		}
+		// seq 從 1 連續編號，超出本次條數的是已刪除的條文。
+		if _, err := tx.NewRaw("DELETE FROM ?.? WHERE seq > ?", schema, table, len(rows)).Exec(ctx); err != nil {
+			return fmt.Errorf("delete removed articles: %w", err)
 		}
 		if _, err := tx.NewInsert().Model(&catalog).On("CONFLICT (pcode) DO UPDATE").
 			Set("table_name = EXCLUDED.table_name, name = EXCLUDED.name, nature = EXCLUDED.nature").

@@ -202,6 +202,14 @@ func EnsureProceedingsSchema(ctx context.Context, db *hidb.Database, log *logger
 				return fmt.Errorf("statement %d: %w", i+1, err)
 			}
 		}
+		if err := ensureStampFunction(ctx, tx); err != nil {
+			return err
+		}
+		for _, table := range ProceedingsTables {
+			if err := ensureRowStamps(ctx, tx, "proceedings", table); err != nil {
+				return err
+			}
+		}
 		var found int
 		if err := tx.NewRaw(`SELECT count(*) FROM pg_tables WHERE schemaname = 'proceedings' AND tablename IN (?)`,
 			bun.In(ProceedingsTables)).Scan(ctx, &found); err != nil {

@@ -45,3 +45,20 @@ func TestNewsSchema_HasNoVectors(t *testing.T) {
 		}
 	}
 }
+
+// TestNewsSchema_SourcesRegionMatchesArticles 確認來源清單與文章用同一組地區值，兩表才能對照。
+func TestNewsSchema_SourcesRegionMatchesArticles(t *testing.T) {
+	all := strings.Join(newsSchemaStatements, "\n")
+	check := "source_region text NOT NULL CHECK (source_region IN ('TW', 'HK', 'foreign'))"
+	if n := strings.Count(all, check); n != 2 {
+		t.Errorf("expected the same region check on articles and sources, found %d", n)
+	}
+}
+
+// TestNewsSchema_SourcesHasNoForeignKey 確認文章不綁外鍵到來源，新網域匯入時不會被擋下。
+func TestNewsSchema_SourcesHasNoForeignKey(t *testing.T) {
+	all := strings.Join(newsSchemaStatements, "\n")
+	if strings.Contains(all, "REFERENCES news.sources") {
+		t.Error("articles must not reference news.sources")
+	}
+}

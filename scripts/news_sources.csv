@@ -1,0 +1,151 @@
+domain,name,source_region,country,kind,stance,excluded,notes
+ltn.com.tw,自由時報,TW,TW,newspaper,green-leaning,,
+taipeitimes.com,Taipei Times,TW,TW,newspaper,green-leaning,,自由時報集團英文報
+udn.com,聯合報／聯合新聞網,TW,TW,newspaper,blue-leaning,,
+chinatimes.com,中國時報,TW,TW,newspaper,blue-leaning,,旺旺中時集團
+ctee.com.tw,工商時報,TW,TW,newspaper,blue-leaning,,旺旺中時集團
+ctwant.com,CTWANT,TW,TW,magazine,blue-leaning,,旺旺中時集團
+chinapost.com.tw,The China Post,TW,TW,newspaper,blue-leaning,,
+appledaily.com.tw,台灣蘋果日報,TW,TW,newspaper,,,2021 年停刊
+epochtimes.com.tw,大紀元時報（台灣）,TW,TW,newspaper,,,法輪功背景
+matsu-news.gov.tw,馬祖日報,TW,TW,newspaper,,,連江縣政府發行
+setn.com,三立新聞網,TW,TW,broadcaster,green-leaning,,
+ftvnews.com.tw,民視新聞,TW,TW,broadcaster,green-leaning,,
+tvbs.com.tw,TVBS,TW,TW,broadcaster,blue-leaning,,
+cts.com.tw,華視,TW,TW,broadcaster,,,公廣集團
+pts.org.tw,公視,TW,TW,broadcaster,,,公廣集團
+rti.org.tw,中央廣播電臺,TW,TW,broadcaster,,,國家廣播電台
+icrt.com.tw,ICRT,TW,TW,broadcaster,,,
+kiss.com.tw,KISS RADIO,TW,TW,broadcaster,,,
+ustv.com.tw,非凡新聞,TW,TW,broadcaster,,,財經
+cna.com.tw,中央社,TW,TW,wire,,,國家通訊社
+focustaiwan.tw,Focus Taiwan,TW,TW,wire,,,中央社英文版
+m.focustaiwan.tw,Focus Taiwan,TW,TW,wire,,,中央社英文版行動版
+japan.focustaiwan.tw,Focus Taiwan 日本語,TW,TW,wire,,,中央社日文版
+ettoday.net,ETtoday新聞雲,TW,TW,online,,,
+nownews.com,NOWnews今日新聞,TW,TW,online,,,
+newtalk.tw,新頭殼,TW,TW,online,green-leaning,,
+storm.mg,風傳媒,TW,TW,online,,,
+new7.storm.mg,新新聞,TW,TW,magazine,,,風傳媒旗下
+thenewslens.com,關鍵評論網,TW,TW,online,,,
+upmedia.mg,上報,TW,TW,online,,,
+mirrormedia.mg,鏡週刊,TW,TW,magazine,,,
+twreporter.org,報導者,TW,TW,online,,,非營利
+taiwannews.com.tw,Taiwan News,TW,TW,online,,,
+coolloud.org.tw,苦勞網,TW,TW,online,,,社運媒體
+cnyes.com,鉅亨網,TW,TW,online,,,財經
+money-link.com.tw,富聯網,TW,TW,online,,,財經
+technews.tw,科技新報,TW,TW,online,,,科技
+cardu.com.tw,卡優新聞網,TW,TW,online,,,消費金融
+eprice.com.tw,ePrice,TW,TW,online,,,3C
+digitimes.com.tw,DIGITIMES,TW,TW,online,,,科技產業
+digitimes.com,DIGITIMES,TW,TW,online,,,科技產業；英文版
+ithome.com.tw,iThome,TW,TW,magazine,,,資訊
+bnext.com.tw,數位時代,TW,TW,magazine,,,科技
+businesstoday.com.tw,今周刊,TW,TW,magazine,,,財經
+cw.com.tw,天下雜誌,TW,TW,magazine,,,
+wealth.com.tw,財訊,TW,TW,magazine,,,財經
+ctimes.com.tw,CTIMES,TW,TW,magazine,,,電子產業
+yam.com,蕃薯藤 yam,TW,TW,aggregator,,,轉載他報
+sina.com.tw,新浪台灣,TW,TW,portal,,,
+hinet.net,HiNet,TW,TW,portal,,,
+taiwantoday.tw,Taiwan Today,TW,TW,government,,,外交部
+moea.gov.tw,經濟部,TW,TW,government,,,
+amcham.com.tw,台北市美國商會,TW,TW,other,,,
+scmp.com,南華早報 South China Morning Post,HK,HK,newspaper,,,
+thestandard.com.hk,The Standard,HK,HK,newspaper,,,
+mingpao.com,明報,HK,HK,newspaper,,,
+hket.com,香港經濟日報,HK,HK,newspaper,,,
+hk01.com,香港01,HK,HK,online,,,
+news.rthk.hk,香港電台,HK,HK,broadcaster,,,
+rthk.hk,香港電台,HK,HK,broadcaster,,,
+passiontimes.hk,熱血時報,HK,HK,online,,,
+inmediahk.net,香港獨立媒體,HK,HK,online,,,
+sina.com.hk,新浪香港,HK,HK,portal,,,
+reuters.com,Reuters,foreign,GB,wire,,,
+apnews.com,Associated Press,foreign,US,wire,,,
+ap.org,Associated Press,foreign,US,wire,,,
+bloomberg.com,Bloomberg,foreign,US,wire,,,
+trust.org,Thomson Reuters Foundation,foreign,GB,wire,,,
+aninews.in,ANI,foreign,IN,wire,,,
+antaranews.com,Antara,foreign,ID,wire,,,印尼國家通訊社
+yna.co.kr,Yonhap,foreign,KR,wire,,,
+kyodonews.net,Kyodo News,foreign,JP,wire,,,
+nytimes.com,The New York Times,foreign,US,newspaper,,,
+washingtonpost.com,The Washington Post,foreign,US,newspaper,,,
+wsj.com,The Wall Street Journal,foreign,US,newspaper,,,
+washingtontimes.com,The Washington Times,foreign,US,newspaper,,,
+sfgate.com,SFGate,foreign,US,newspaper,,,
+chron.com,Houston Chronicle,foreign,US,newspaper,,,
+dailyherald.com,Daily Herald,foreign,US,newspaper,,,
+stripes.com,Stars and Stripes,foreign,US,newspaper,,,
+theepochtimes.com,The Epoch Times,foreign,US,newspaper,,,法輪功背景
+theguardian.com,The Guardian,foreign,GB,newspaper,,,
+dailymail.co.uk,Daily Mail,foreign,GB,newspaper,,,
+ft.com,Financial Times,foreign,GB,newspaper,,,
+japantimes.co.jp,The Japan Times,foreign,JP,newspaper,,,
+nikkei.com,Nikkei,foreign,JP,newspaper,,,
+asahi.com,朝日新聞,foreign,JP,newspaper,,,
+heraldcorp.com,The Korea Herald,foreign,KR,newspaper,,,
+koreatimes.co.kr,The Korea Times,foreign,KR,newspaper,,,
+straitstimes.com,The Straits Times,foreign,SG,newspaper,,,
+thestar.com.my,The Star,foreign,MY,newspaper,,,
+philstar.com,The Philippine Star,foreign,PH,newspaper,,,
+inquirer.net,Philippine Daily Inquirer,foreign,PH,newspaper,,,
+manilatimes.net,The Manila Times,foreign,PH,newspaper,,,
+manilastandard.net,Manila Standard,foreign,PH,newspaper,,,
+bangkokpost.com,Bangkok Post,foreign,TH,newspaper,,,
+republika.co.id,Republika,foreign,ID,newspaper,,,
+indiatimes.com,The Times of India,foreign,IN,newspaper,,,
+thehindu.com,The Hindu,foreign,IN,newspaper,,,
+business-standard.com,Business Standard,foreign,IN,newspaper,,,
+tijd.be,De Tijd,foreign,BE,newspaper,,,
+stuff.co.nz,Stuff,foreign,NZ,online,,,
+cnn.com,CNN,foreign,US,broadcaster,,,
+go.com,ABC News,foreign,US,broadcaster,,,
+foxnews.com,Fox News,foreign,US,broadcaster,,,
+voanews.com,Voice of America,foreign,US,broadcaster,,,美國政府資助
+rfa.org,Radio Free Asia,foreign,US,broadcaster,,,美國政府資助
+bbc.com,BBC,foreign,GB,broadcaster,,,
+bbc.co.uk,BBC,foreign,GB,broadcaster,,,
+dw.com,Deutsche Welle,foreign,DE,broadcaster,,,德國政府資助
+france24.com,France 24,foreign,FR,broadcaster,,,
+euronews.com,Euronews,foreign,FR,broadcaster,,,
+swissinfo.ch,SWI swissinfo.ch,foreign,CH,broadcaster,,,
+nhk.or.jp,NHK,foreign,JP,broadcaster,,,
+abc.net.au,ABC Australia,foreign,AU,broadcaster,,,
+channelnewsasia.com,CNA (Mediacorp),foreign,SG,broadcaster,,,
+ndtv.com,NDTV,foreign,IN,broadcaster,,,
+lrt.lt,LRT,foreign,LT,broadcaster,,,
+sputniknews.com,Sputnik,foreign,RU,broadcaster,,,俄羅斯官方媒體
+rt.com,RT,foreign,RU,broadcaster,,,俄羅斯官方媒體
+newsweek.com,Newsweek,foreign,US,magazine,,,
+nationalinterest.org,The National Interest,foreign,US,magazine,,,
+thediplomat.com,The Diplomat,foreign,US,magazine,,,
+economist.com,The Economist,foreign,GB,magazine,,,
+businessinsider.com,Business Insider,foreign,US,online,,,
+ibtimes.com,International Business Times,foreign,US,online,,,
+fool.com,The Motley Fool,foreign,US,online,,,
+breitbart.com,Breitbart,foreign,US,online,,,
+firstpost.com,Firstpost,foreign,IN,online,,,
+freemalaysiatoday.com,Free Malaysia Today,foreign,MY,online,,,
+tribunnews.com,Tribunnews,foreign,ID,online,,,
+computerweekly.com,Computer Weekly,foreign,GB,magazine,,,
+globalsecurity.org,GlobalSecurity.org,foreign,US,other,,,國防資料站，大量轉載
+yahoo.com,Yahoo,foreign,US,aggregator,,,轉載他報
+msn.com,MSN,foreign,US,aggregator,,,轉載他報
+iheart.com,iHeart,foreign,US,aggregator,,,轉載通訊社稿
+netscape.com,Netscape,foreign,US,aggregator,,,轉載他報
+asiaone.com,AsiaOne,foreign,SG,portal,,,
+uol.com.br,UOL,foreign,BR,portal,,,
+eyeontaiwan.com,Eye on Taiwan,foreign,,aggregator,,,轉載台灣新聞，經營者不明
+menafn.com,MENAFN,foreign,,aggregator,,,轉載他報與新聞稿
+webindia123.com,Webindia123,foreign,IN,aggregator,,,
+marketscreener.com,MarketScreener,foreign,FR,aggregator,,,財經轉載
+4-traders.com,MarketScreener,foreign,FR,aggregator,,,財經轉載
+finanznachrichten.de,FinanzNachrichten,foreign,DE,aggregator,,,財經轉載
+tmcnet.com,TMCnet,foreign,US,aggregator,,,
+biztoc.com,BizToc,foreign,US,aggregator,,,
+digitaljournal.com,Digital Journal,foreign,CA,aggregator,,,大量新聞稿
+kreatio.info,Kreatio,foreign,,aggregator,,,
+prnewswire.com,PR Newswire,foreign,US,press_release,,,企業新聞稿
